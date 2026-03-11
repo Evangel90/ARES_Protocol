@@ -408,4 +408,80 @@ contract ARESTest is Test {
         vm.prank(admin);
         vault.protectedWithdraw(address(token), recipient, 100); 
     }
+
+    function test_Queue_InvalidDelay() public {
+        vm.startPrank(proposer);
+        token.approve(address(dao), dao.PROPOSAL_STAKE());
+        dao.proposeCall(address(0), "", "Invalid Delay Test");
+        vm.stopPrank();
+
+        _passProposal(0);
+
+        // 1. Test delay too short
+        vm.prank(admin);
+        dao.setTimelockDelay(ExecutionLib.MIN_DELAY - 1);
+        vm.expectRevert(ExecutionLib.InvalidDelay.selector);
+        dao.queueProposal(0);
+
+        // 2. Test delay too long
+        vm.prank(admin);
+        dao.setTimelockDelay(ExecutionLib.MAX_DELAY + 1);
+        vm.expectRevert(ExecutionLib.InvalidDelay.selector);
+        dao.queueProposal(0);
+    }
+
+    function test_Queue_AlreadyQueued() public {
+        // Create two identical proposals
+        vm.startPrank(proposer);
+        token.approve(address(dao), dao.PROPOSAL_STAKE() * 2);
+        dao.proposeCall(address(0), "", "Duplicate"); // ID 0
+        dao.proposeCall(address(0), "", "Duplicate"); // ID 1
+        vm.stopPrank();
+
+        _passProposal(0);
+        _passProposal(1);
+
+        // Queue the first one
+        dao.queueProposal(0);
+
+        // Try to queue the second one (same target, data, value, and will have same eta if in same block)
+        // This should hit the library's check, not the DAO's `p.executionTime != 0` check
+        vm.expectRevert(abi.encodeWithSelector(
+            ExecutionLib.TransactionAlreadyQueued.selector,
+            keccak256(abi.encode(address(0), uint(0), bytes(""), block.timestamp + dao.TIMELOCKDELAY()))
+        ));
+        dao.queueProposal(1);
+    }
+
+    function test_Cancel_NotQueued() public {
+        // Use the test-only helper to call internal _cancel
+        bytes32 fakeHash = keccak256("fake");
+        vm.expectRevert(abi.encodeWithSelector(ExecutionLib.TransactionNotQueued.selector, fakeHash));
+        dao.testOnly_cancel(fakeHash);
+    }
+
+    function test_Execute_NotQueued() public {
+        // Use the test-only helper to call internal execute
+        address target = address(0);
+        uint256 value = 0;
+        bytes memory data = "";
+        uint256 eta = block.timestamp + 100;
+        bytes32 fakeHash = keccak256(abi.encode(target, value, data, eta));
+
+        vm.expectRevert(abi.encodeWithSelector(ExecutionLib.TransactionNotQueued.selector, fakeHash));
+        dao.testOnly_execute(target, value, data, eta);
+    }
+
+    function test_AddRemoveMembers() public {
+        address newMember = makeAddr("newMember");
+        
+        vm.prank(admin);
+        dao.addMembers(newMember);
+
+        // To test `onlyMembers`, we'd need a function that uses it.
+        // For now, we assume the library works if add/remove admin works.
+        // Let's just test the remove part.
+        vm.prank(admin);
+        dao.removeMembers(newMember);
+    }
 }

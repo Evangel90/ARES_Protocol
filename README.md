@@ -1,6 +1,6 @@
 ## Protocol Specification
 
-The ARES Protocol governs the lifecycle of on-chain actions through a structured, secure, and time-locked process. This lifecycle ensures that all actions are subject to community approval and a mandatory cooling-off period before execution, providing robust defenses against malicious proposals and economic attacks.
+ARES Protocol governs the lifecycle of on-chain actions through a structured, secure, and time-locked process. This lifecycle ensures that all actions are subject to community approval and a mandatory cooling-off period before execution, providing robust defenses against malicious proposals and economic attacks.
 
 The lifecycle consists of five distinct phases:
 

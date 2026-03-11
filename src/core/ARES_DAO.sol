@@ -169,5 +169,18 @@ contract ARES_DAO is ARES_Control, ARES_Auth, ARES_Exec_Eng, ARES_Distributor {
         _processClaim(index, account, amount, proof);
         vault.distribute(account, amount);
     }
+
+    function setTimelockDelay(uint256 _delay) external onlyAdmins(msg.sender) {
+        TIMELOCKDELAY = _delay;
+    }
+
+    // --- Test-only functions to reach internal library logic ---
+    function testOnly_cancel(bytes32 txHash) external {
+        _cancel(txHash);
+    }
+
+    function testOnly_execute(address target, uint256 value, bytes memory data, uint256 eta) external {
+        execute(target, value, data, eta);
+    }
     
 }
