@@ -1,63 +1,40 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity ^0.8.13;
 
-contract ARES_Control {
+import "../libraries/AccessControlLib.sol";
 
-    address[] internal admins;
-    mapping(address => bool) internal member;
-
-    error NotMember(address account);
+abstract contract ARES_Control {
+    using AccessControlLib for AccessControlLib.Roles;
+    AccessControlLib.Roles internal roles;
 
     modifier onlyAdmins(address _address){
-        bool isAdmin = false;
-        for(uint i = 0; i < admins.length; i++){
-            if(admins[i] == _address){
-                isAdmin = true;
-                break;
-            }
-        }
-        require(isAdmin, "Only admins can call this function");
+        roles.checkAdmin(_address);
         _;
     }
 
     modifier onlyMembers(address _address) {
-        if (!member[_address]) revert NotMember(_address);
+        roles.checkMember(_address);
         _;
     }
 
     modifier onlyDAO() {
-        bool isAuth = msg.sender == address(this);
-        if (!isAuth) {
-            for (uint i = 0; i < admins.length; i++) {
-                if (admins[i] == msg.sender) {
-                    isAuth = true;
-                    break;
-                }
-            }
-        }
-        require(isAuth, "Unauthorized");
+        roles.checkDAO(msg.sender, address(this));
         _;
     }
 
     function addAdmin(address _address) public onlyAdmins(msg.sender) {
-        admins.push(_address);
+        roles.addAdmin(_address);
     }
 
     function addMembers(address _address) public onlyAdmins(msg.sender) {
-        member[_address] = true;
+        roles.addMember(_address);
     }
 
     function removeAdmin(address _address) public onlyAdmins(msg.sender) {
-        for(uint i = 0; i < admins.length; i++){
-            if(admins[i] == _address){
-                admins[i] = admins[admins.length - 1];
-                admins.pop();
-                break;
-            }
-        }
+        roles.removeAdmin(_address);
     }
 
     function removeMembers(address _address) public onlyAdmins(msg.sender) {
-        member[_address] = false;
+        roles.removeMember(_address);
     }
 }

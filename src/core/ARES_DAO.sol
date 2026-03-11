@@ -5,16 +5,22 @@ import '../modules/ARES_Vault.sol';
 import '../modules/ARES_Auth.sol';
 import '../modules/ARES_Exec_Eng.sol';
 import '../modules/ARES_Distributor.sol';
+import '../modules/ARES_Control.sol';
 import "@openzeppelin/contracts/utils/cryptography/MerkleProof.sol";
-// import "../interfaces/IERC20.sol";
+import "../interfaces/IERC20.sol";
+import "../libraries/AccessControlLib.sol";
 
-contract ARES_DAO is ARES_Vault, ARES_Auth, ARES_Exec_Eng, ARES_Distributor {
+contract ARES_DAO is ARES_Control, ARES_Auth, ARES_Exec_Eng, ARES_Distributor {
+    using AccessControlLib for AccessControlLib.Roles;
     enum ActionType { TRANSFER, CALL, UPGRADE }
     enum CommitPhase { COMMITTED, DENIED, ACCEPTED }
 
     uint public MIN_QUORUM = 3;
     uint256 public TIMELOCKDELAY = 2 days;
     bytes32 public merkleRoot;
+    
+    ARES_Vault public vault;
+    IERC20 public aresToken;
 
     // --- Economic Defenses ---
     uint256 public constant PROPOSAL_STAKE = 1000 * 10**18;
@@ -40,12 +46,18 @@ contract ARES_DAO is ARES_Vault, ARES_Auth, ARES_Exec_Eng, ARES_Distributor {
     event ProposalStatusChanged(uint indexed proposalId, CommitPhase indexed phase);
     event ProposalExecuted(uint indexed proposalId, uint indexed timeExecuted);
 
-    constructor(address[] memory _admins) ARES_Vault(_admins) {}
+    constructor(address[] memory _admins, address _vault) {
+        for(uint i = 0; i < _admins.length; i++) {
+            roles.addAdmin(_admins[i]);
+        }
+        vault = ARES_Vault(_vault);
+        aresToken = vault.aresToken();
+    }
 
     function proposeTransfer(address token, address recipient, uint amount, string memory description) public {
         // Fix: Pass the 3 arguments required by ARES_Vault.protectedWithdraw (token, recipient, amount)
         bytes memory data = abi.encodeWithSignature("protectedWithdraw(address,address,uint256)", token, recipient, amount);
-        createProposal(ActionType.TRANSFER, address(this), 0, data, description);
+        createProposal(ActionType.TRANSFER, address(vault), 0, data, description);
     }
 
     function proposeCall(address target, bytes memory data, string memory description) public {
@@ -54,7 +66,7 @@ contract ARES_DAO is ARES_Vault, ARES_Auth, ARES_Exec_Eng, ARES_Distributor {
 
     function proposeUpgrade(address newImplementation, string memory description) public {
         bytes memory data = abi.encodeWithSignature("upgradeTo(address)", newImplementation);
-        createProposal(ActionType.UPGRADE, currentVaultAddress, 0, data, description);
+        createProposal(ActionType.UPGRADE, address(vault), 0, data, description);
     }
 
     function createProposal(ActionType _type, address target, uint value, bytes memory data, string memory description) internal {
@@ -155,7 +167,7 @@ contract ARES_DAO is ARES_Vault, ARES_Auth, ARES_Exec_Eng, ARES_Distributor {
 
     function claim(uint256 index, address account, uint256 amount, bytes32[] calldata proof) external {
         _processClaim(index, account, amount, proof);
-        require(aresToken.transfer(account, amount), "Transfer failed");
+        vault.distribute(account, amount);
     }
     
 }

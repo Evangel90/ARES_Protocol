@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity ^0.8.13;
 
-contract ARES_Auth {
+abstract contract ARES_Auth {
     error InvalidSignature();
     error SignatureExpired();
     error InvalidSValue();

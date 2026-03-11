@@ -2,6 +2,7 @@
 pragma solidity ^0.8.13;
 
 import "@openzeppelin/contracts/utils/cryptography/MerkleProof.sol";
+import "../libraries/BitmapLib.sol";
 
 /// @title ARES Distributor Module
 /// @notice Implements a scalable Merkle-based airdrop system with Bitmap state tracking.
@@ -9,6 +10,7 @@ abstract contract ARES_Distributor {
     // --- Errors ---
     error AlreadyClaimed();
     error InvalidProof();
+    using BitmapLib for BitmapLib.Map;
 
     // --- Events ---
     event Claimed(uint256 index, address indexed account, uint256 amount);
@@ -19,26 +21,20 @@ abstract contract ARES_Distributor {
     
     // Packed booleans: each uint256 holds 256 claim bits.
     // This is gas-efficient for tracking thousands of claims.
-    mapping(uint256 => uint256) private _claimedBitMap;
+    BitmapLib.Map private _claimedBitMap;
 
     /**
      * @notice Checks if a specific index has already been claimed.
      */
     function isClaimed(uint256 index) public view returns (bool) {
-        uint256 wordIndex = index / 256;
-        uint256 bitIndex = index % 256;
-        uint256 word = _claimedBitMap[wordIndex];
-        uint256 mask = (uint256(1) << bitIndex);
-        return (word & mask) == mask;
+        return _claimedBitMap.isClaimed(index);
     }
 
     /**
      * @notice Marks an index as claimed internally.
      */
     function _setClaimed(uint256 index) private {
-        uint256 wordIndex = index / 256;
-        uint256 bitIndex = index % 256;
-        _claimedBitMap[wordIndex] |= (uint256(1) << bitIndex);
+        _claimedBitMap.setClaimed(index);
     }
 
     /**
