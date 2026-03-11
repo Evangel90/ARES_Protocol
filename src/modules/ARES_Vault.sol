@@ -9,6 +9,9 @@ contract ARES_Vault is ARES_Control {
     ARES_Token public aresToken;
     bool public upgraded = false;
     address public currentVaultAddress;
+    uint256 public constant DAILY_LIMIT = 50000 * 10**18;
+    uint256 public dailySpent;
+    uint256 public lastResetTime;
 
     constructor(address[] memory initialAdmins) {
         admins = initialAdmins;
@@ -23,10 +26,10 @@ contract ARES_Vault is ARES_Control {
         require(success, "Deposit failed");
     }
 
-    function withdraw(address token, address recipient, uint256 amount) public onlyAdmins(msg.sender) {
-        bool success = IERC20(token).transfer(recipient, amount);
-        require(success, "Withdrawal failed");
-    }
+    // function withdraw(address token, address recipient, uint256 amount) public onlyAdmins(msg.sender) {
+    //     bool success = IERC20(token).transfer(recipient, amount);
+    //     require(success, "Withdrawal failed");
+    // }
 
     //reimplement this function to allow for consensus first before upgrading the vault
     function upgradeVault(address newImplementation) public onlyAdmins(msg.sender) {
@@ -35,4 +38,16 @@ contract ARES_Vault is ARES_Control {
         currentVaultAddress = newImplementation;
     }
 
+    function protectedWithdraw(address token, address recipient, uint256 amount) public onlyDAO {
+
+        if (block.timestamp >= lastResetTime + 1 days) {
+            dailySpent = 0;
+            lastResetTime = block.timestamp;
+        }
+        
+        require(dailySpent + amount <= DAILY_LIMIT, "Daily limit exceeded");
+        dailySpent += amount;
+        
+        require(IERC20(token).transfer(recipient, amount), "Transfer failed");
+    }
 }

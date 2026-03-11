@@ -25,6 +25,20 @@ contract ARES_Control {
         _;
     }
 
+    modifier onlyDAO() {
+        bool isAuth = msg.sender == address(this);
+        if (!isAuth) {
+            for (uint i = 0; i < admins.length; i++) {
+                if (admins[i] == msg.sender) {
+                    isAuth = true;
+                    break;
+                }
+            }
+        }
+        require(isAuth, "Unauthorized");
+        _;
+    }
+
     function addAdmin(address _address) public onlyAdmins(msg.sender) {
         admins.push(_address);
     }

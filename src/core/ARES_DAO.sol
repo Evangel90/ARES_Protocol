@@ -6,6 +6,7 @@ import '../modules/ARES_Auth.sol';
 import '../modules/ARES_Exec_Eng.sol';
 import '../modules/ARES_Distributor.sol';
 import "@openzeppelin/contracts/utils/cryptography/MerkleProof.sol";
+// import "../interfaces/IERC20.sol";
 
 contract ARES_DAO is ARES_Vault, ARES_Auth, ARES_Exec_Eng, ARES_Distributor {
     enum ActionType { TRANSFER, CALL, UPGRADE }
@@ -14,6 +15,10 @@ contract ARES_DAO is ARES_Vault, ARES_Auth, ARES_Exec_Eng, ARES_Distributor {
     uint public MIN_QUORUM = 3;
     uint256 public TIMELOCKDELAY = 2 days;
     bytes32 public merkleRoot;
+
+    // --- Economic Defenses ---
+    uint256 public constant PROPOSAL_STAKE = 1000 * 10**18;
+    mapping(uint256 => address) public proposalProposer;
 
     mapping (uint => mapping (address => bool)) public Voted;
 
@@ -38,8 +43,9 @@ contract ARES_DAO is ARES_Vault, ARES_Auth, ARES_Exec_Eng, ARES_Distributor {
     constructor(address[] memory _admins) ARES_Vault(_admins) {}
 
     function proposeTransfer(address token, address recipient, uint amount, string memory description) public {
-        bytes memory data = abi.encodeWithSignature("withdraw(address,address,uint256)", token, recipient, amount);
-        createProposal(ActionType.TRANSFER, currentVaultAddress, amount, data, description);
+        // Fix: Pass the 3 arguments required by ARES_Vault.protectedWithdraw (token, recipient, amount)
+        bytes memory data = abi.encodeWithSignature("protectedWithdraw(address,address,uint256)", token, recipient, amount);
+        createProposal(ActionType.TRANSFER, address(this), 0, data, description);
     }
 
     function proposeCall(address target, bytes memory data, string memory description) public {
@@ -52,6 +58,9 @@ contract ARES_DAO is ARES_Vault, ARES_Auth, ARES_Exec_Eng, ARES_Distributor {
     }
 
     function createProposal(ActionType _type, address target, uint value, bytes memory data, string memory description) internal {
+        require(aresToken.transferFrom(msg.sender, address(this), PROPOSAL_STAKE), "Stake failed");
+        proposalProposer[proposals.length] = msg.sender;
+
         proposals.push(Proposal({
             proposalId: proposals.length,
             actionType: _type,
@@ -116,6 +125,7 @@ contract ARES_DAO is ARES_Vault, ARES_Auth, ARES_Exec_Eng, ARES_Distributor {
 
         execute(p.target, p.value, p.data, p.executionTime);
         p.executed = true;
+        require(aresToken.transfer(proposalProposer[proposalId], PROPOSAL_STAKE), "Stake refund failed");
 
         emit ProposalExecuted(proposalId, block.timestamp);
     }
@@ -135,6 +145,7 @@ contract ARES_DAO is ARES_Vault, ARES_Auth, ARES_Exec_Eng, ARES_Distributor {
             p.executionTime = 0;
         }
         
+        require(aresToken.transfer(proposalProposer[proposalId], PROPOSAL_STAKE), "Stake refund failed");
         emit ProposalStatusChanged(proposalId, CommitPhase.DENIED);
     }
 
@@ -146,4 +157,5 @@ contract ARES_DAO is ARES_Vault, ARES_Auth, ARES_Exec_Eng, ARES_Distributor {
         _processClaim(index, account, amount, proof);
         require(aresToken.transfer(account, amount), "Transfer failed");
     }
+    
 }
