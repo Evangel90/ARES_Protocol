@@ -484,4 +484,47 @@ contract ARESTest is Test {
         vm.prank(admin);
         dao.removeMembers(newMember);
     }
+
+    function test_ExecEng_PublicGetter() public {
+        vm.startPrank(proposer);
+        token.approve(address(dao), dao.PROPOSAL_STAKE());
+        dao.proposeCall(address(0), "", "Getter Test");
+        vm.stopPrank();
+
+        _passProposal(0);
+        dao.queueProposal(0);
+
+        (,,,,,,,,uint256 executionTime,) = dao.proposals(0);
+        
+        // Calculate hash based on ARES_Exec_Eng logic
+        bytes32 txHash = keccak256(abi.encode(address(0), uint(0), bytes(""), executionTime));
+        
+        // Verify the public getter works and returns the correct timestamp
+        assertEq(dao.queuedTransactions(txHash), executionTime);
+    }
+
+    function test_ExecEng_DirectExecute() public {
+        vm.startPrank(proposer);
+        token.approve(address(dao), dao.PROPOSAL_STAKE());
+        dao.proposeCall(address(0), "", "Direct Exec");
+        vm.stopPrank();
+
+        _passProposal(0);
+        dao.queueProposal(0);
+
+        (,,,,,,,,uint256 executionTime,) = dao.proposals(0);
+        vm.warp(executionTime + 1);
+
+        // Execute directly via ARES_Exec_Eng public function
+        // This bypasses the DAO's executeProposal (no stake refund, no executed flag set)
+        dao.execute(address(0), 0, bytes(""), executionTime);
+
+        // Verify queue is cleared
+        bytes32 txHash = keccak256(abi.encode(address(0), uint(0), bytes(""), executionTime));
+        assertEq(dao.queuedTransactions(txHash), 0);
+
+        // Verify DAO cannot execute anymore (because it was already executed via the engine)
+        vm.expectRevert(abi.encodeWithSelector(ExecutionLib.TransactionNotQueued.selector, txHash));
+        dao.executeProposal(0);
+    }
 }
