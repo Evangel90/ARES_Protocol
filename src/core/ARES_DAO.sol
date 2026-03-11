@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity ^0.8.13;
 
-import '../modules/ARES_Vault.sol';
+import './ARES_Vault.sol';
 import '../modules/ARES_Auth.sol';
 import '../modules/ARES_Exec_Eng.sol';
 import '../modules/ARES_Distributor.sol';

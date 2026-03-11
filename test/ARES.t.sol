@@ -3,7 +3,7 @@ pragma solidity ^0.8.13;
 
 import "forge-std/Test.sol";
 import "../src/core/ARES_DAO.sol";
-import "../src/modules/ARES_Vault.sol";
+import "../src/core/ARES_Vault.sol";
 import "../src/modules/ARES_Token.sol";
 
 contract ARESTest is Test {

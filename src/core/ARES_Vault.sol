@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity ^0.8.13;
 
-import "./ARES_Control.sol";
-import "./ARES_Token.sol";
+import "../modules/ARES_Control.sol";
+import "../modules/ARES_Token.sol";
 import "../interfaces/IERC20.sol";
 import "../libraries/AccessControlLib.sol";
 
