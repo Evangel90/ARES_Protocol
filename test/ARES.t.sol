@@ -5,6 +5,9 @@ import "forge-std/Test.sol";
 import "../src/core/ARES_DAO.sol";
 import "../src/core/ARES_Vault.sol";
 import "../src/modules/ARES_Token.sol";
+import "../src/modules/ARES_Auth.sol";
+import "../src/libraries/AccessControlLib.sol";
+import "../src/libraries/ExecutionLib.sol";
 
 contract ARESTest is Test {
     ARES_DAO dao;
@@ -102,6 +105,32 @@ contract ARESTest is Test {
 
     function _hashPair(bytes32 a, bytes32 b) internal pure returns (bytes32) {
         return a < b ? keccak256(abi.encodePacked(a, b)) : keccak256(abi.encodePacked(b, a));
+    }
+
+    function _passProposal(uint256 proposalId) internal {
+        bytes32 domainSeparator = dao.DOMAIN_SEPARATOR();
+        bytes32 voteTypeHash = keccak256("Vote(uint256 proposalId,uint256 nonce,uint256 deadline)");
+        uint256 deadline = block.timestamp + 10 hours;
+
+        // Voter 1
+        {
+            uint256 nonce = dao.nonces(voter1);
+            bytes32 structHash = keccak256(abi.encode(voteTypeHash, proposalId, nonce, deadline));
+            bytes32 digest = keccak256(abi.encodePacked("\x19\x01", domainSeparator, structHash));
+            (uint8 v, bytes32 r, bytes32 s) = vm.sign(voter1Pk, digest);
+            dao.voteBySig(voter1, proposalId, deadline, v, r, s, _getProof(leaves, 0));
+        }
+        // Voter 2 & 3 (Just using Voter 1 logic repeated for simplicity of helper if keys were same, but here they differ)
+        {
+            uint256 nonce = dao.nonces(voter2);
+            (uint8 v, bytes32 r, bytes32 s) = vm.sign(voter2Pk, keccak256(abi.encodePacked("\x19\x01", domainSeparator, keccak256(abi.encode(voteTypeHash, proposalId, nonce, deadline)))));
+            dao.voteBySig(voter2, proposalId, deadline, v, r, s, _getProof(leaves, 1));
+        }
+        {
+            uint256 nonce = dao.nonces(voter3);
+            (uint8 v, bytes32 r, bytes32 s) = vm.sign(voter3Pk, keccak256(abi.encodePacked("\x19\x01", domainSeparator, keccak256(abi.encode(voteTypeHash, proposalId, nonce, deadline)))));
+            dao.voteBySig(voter3, proposalId, deadline, v, r, s, _getProof(leaves, 2));
+        }
     }
 
     // --- Tests ---
@@ -213,30 +242,7 @@ contract ARESTest is Test {
         vm.stopPrank();
 
         // 2. Vote to acceptance
-        bytes32 domainSeparator = dao.DOMAIN_SEPARATOR();
-        bytes32 voteTypeHash = keccak256("Vote(uint256 proposalId,uint256 nonce,uint256 deadline)");
-        uint256 deadline = block.timestamp + 1 hours;
-        {
-            uint256 nonce = dao.nonces(voter1);
-            bytes32 structHash = keccak256(abi.encode(voteTypeHash, 0, nonce, deadline));
-            bytes32 digest = keccak256(abi.encodePacked("\x19\x01", domainSeparator, structHash));
-            (uint8 v, bytes32 r, bytes32 s) = vm.sign(voter1Pk, digest);
-            dao.voteBySig(voter1, 0, deadline, v, r, s, _getProof(leaves, 0));
-        }
-        {
-            uint256 nonce = dao.nonces(voter2);
-            bytes32 structHash = keccak256(abi.encode(voteTypeHash, 0, nonce, deadline));
-            bytes32 digest = keccak256(abi.encodePacked("\x19\x01", domainSeparator, structHash));
-            (uint8 v, bytes32 r, bytes32 s) = vm.sign(voter2Pk, digest);
-            dao.voteBySig(voter2, 0, deadline, v, r, s, _getProof(leaves, 1));
-        }
-        {
-            uint256 nonce = dao.nonces(voter3);
-            bytes32 structHash = keccak256(abi.encode(voteTypeHash, 0, nonce, deadline));
-            bytes32 digest = keccak256(abi.encodePacked("\x19\x01", domainSeparator, structHash));
-            (uint8 v, bytes32 r, bytes32 s) = vm.sign(voter3Pk, digest);
-            dao.voteBySig(voter3, 0, deadline, v, r, s, _getProof(leaves, 2));
-        }
+        _passProposal(0);
 
         // 3. Queue it
         dao.queueProposal(0);
@@ -275,5 +281,131 @@ contract ARESTest is Test {
         // 3. Double claim should fail
         vm.expectRevert(ARES_Distributor.AlreadyClaimed.selector);
         dao.claim(0, claimer, claimAmount, proof);
+    }
+
+    function test_AddRemoveAdmin() public {
+        address newAdmin = makeAddr("newAdmin");
+        
+        vm.prank(admin);
+        dao.addAdmin(newAdmin);
+
+        // New admin should be able to set merkle root
+        vm.prank(newAdmin);
+        dao.setMerkleRoot(bytes32(uint256(1)));
+        
+        // Remove admin
+        vm.prank(admin);
+        dao.removeAdmin(newAdmin);
+
+        // Old admin should fail
+        vm.prank(newAdmin);
+        vm.expectRevert(AccessControlLib.OnlyAdmins.selector);
+        dao.setMerkleRoot(bytes32(uint256(2)));
+    }
+
+    function test_VaultDeposit() public {
+        uint256 amount = 100 ether;
+        deal(address(token), proposer, amount);
+        
+        vm.startPrank(proposer);
+        token.approve(address(vault), amount);
+        vault.deposit(address(token), amount);
+        vm.stopPrank();
+
+        // Initial mint (550M) + deposit
+        assertEq(token.balanceOf(address(vault)), 550000000 * 10**18 + amount);
+    }
+
+    function test_UpgradeVault() public {
+        address newImpl = makeAddr("newImpl");
+        
+        vm.prank(admin);
+        vault.upgradeVault(newImpl);
+        
+        assertEq(vault.currentVaultAddress(), newImpl);
+        assertTrue(vault.upgraded());
+
+        // Try to upgrade again
+        vm.prank(admin);
+        vm.expectRevert("Vault has already been upgraded");
+        vault.upgradeVault(makeAddr("anotherImpl"));
+    }
+
+    function test_ExecutionExpired() public {
+        vm.startPrank(proposer);
+        token.approve(address(dao), dao.PROPOSAL_STAKE());
+        dao.proposeCall(address(0), "", "Expire Test");
+        vm.stopPrank();
+
+        _passProposal(0);
+        dao.queueProposal(0);
+
+        // Warp past Grace Period
+        uint256 eta = block.timestamp + dao.TIMELOCKDELAY();
+        vm.warp(eta + ExecutionLib.GRACE_PERIOD + 1);
+
+        vm.expectRevert(abi.encodeWithSelector(ExecutionLib.ExecutionExpired.selector, eta, block.timestamp));
+        dao.executeProposal(0);
+    }
+
+    function test_VerifyTreasuryAction() public {
+        bytes32 domainSeparator = dao.DOMAIN_SEPARATOR();
+        bytes32 actionTypeHash = keccak256("TreasuryAction(address target,uint256 value,bytes data,uint256 nonce,uint256 deadline)");
+        
+        address target = address(token);
+        uint256 value = 0;
+        bytes memory data = "";
+        uint256 nonce = dao.nonces(voter1);
+        uint256 deadline = block.timestamp + 1 hours;
+
+        bytes32 structHash = keccak256(abi.encode(
+            actionTypeHash,
+            target,
+            value,
+            keccak256(data),
+            nonce,
+            deadline
+        ));
+
+        bytes32 digest = keccak256(abi.encodePacked("\x19\x01", domainSeparator, structHash));
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(voter1Pk, digest);
+
+        // Call Verify
+        dao.verifyTreasuryAction(voter1, target, value, data, deadline, v, r, s);
+        
+        // Nonce should increment
+        assertEq(dao.nonces(voter1), nonce + 1);
+    }
+
+    function test_SignatureExpired() public {
+        uint256 proposalId = 0;
+        bytes32 domainSeparator = dao.DOMAIN_SEPARATOR();
+        bytes32 voteTypeHash = keccak256("Vote(uint256 proposalId,uint256 nonce,uint256 deadline)");
+        
+        uint256 deadline = block.timestamp - 1; // Expired
+        uint256 nonce = dao.nonces(voter1);
+
+        bytes32 structHash = keccak256(abi.encode(voteTypeHash, proposalId, nonce, deadline));
+        bytes32 digest = keccak256(abi.encodePacked("\x19\x01", domainSeparator, structHash));
+
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(voter1Pk, digest);
+
+        // Expect revert
+        vm.expectRevert(ARES_Auth.SignatureExpired.selector);
+        dao.voteBySig(voter1, proposalId, deadline, v, r, s, _getProof(leaves, 0));
+    }
+
+    function test_Vault_ProtectedWithdraw_Auth() public {
+        // Vault has admins[0] = admin, and we added dao as admin in setup.
+        
+        // 1. Try calling from random address (Should Revert)
+        address rando = makeAddr("rando");
+        vm.prank(rando);
+        vm.expectRevert(AccessControlLib.Unauthorized.selector);
+        vault.protectedWithdraw(address(token), recipient, 100);
+
+        // 2. Try calling from Admin (Should Succeed)
+        vm.prank(admin);
+        vault.protectedWithdraw(address(token), recipient, 100); 
     }
 }
