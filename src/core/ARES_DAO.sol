@@ -4,9 +4,10 @@ pragma solidity ^0.8.13;
 import '../modules/ARES_Vault.sol';
 import '../modules/ARES_Auth.sol';
 import '../modules/ARES_Exec_Eng.sol';
+import '../modules/ARES_Distributor.sol';
 import "@openzeppelin/contracts/utils/cryptography/MerkleProof.sol";
 
-contract ARES_DAO is ARES_Vault, ARES_Auth, ARES_Exec_Eng {
+contract ARES_DAO is ARES_Vault, ARES_Auth, ARES_Exec_Eng, ARES_Distributor {
     enum ActionType { TRANSFER, CALL, UPGRADE }
     enum CommitPhase { COMMITTED, DENIED, ACCEPTED }
 
@@ -135,5 +136,14 @@ contract ARES_DAO is ARES_Vault, ARES_Auth, ARES_Exec_Eng {
         }
         
         emit ProposalStatusChanged(proposalId, CommitPhase.DENIED);
+    }
+
+    function setDistributionRoot(bytes32 _newRoot) external onlyAdmins(msg.sender) {
+        _updateDistributionRoot(_newRoot);
+    }
+
+    function claim(uint256 index, address account, uint256 amount, bytes32[] calldata proof) external {
+        _processClaim(index, account, amount, proof);
+        require(aresToken.transfer(account, amount), "Transfer failed");
     }
 }
